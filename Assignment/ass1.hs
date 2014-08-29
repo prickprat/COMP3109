@@ -1,4 +1,5 @@
 import Data.List 
+import Test.HUnit
 
 --Define types for Variable and Environment and Query as per specification 
 type Variable = [Char]
@@ -73,11 +74,11 @@ simplify q =
 -------------------------------------------
 
 
-myEnv = [("a", True), ("b", False), ("c", True)]
-myEnv1 = [("a", False), ("b", True), ("c", True)]
 a = "a"
 b = "b" 
 c = "c"
+myEnv = [(a, True), (b, False), (c, True)]
+myEnv1 = [(a, False), (b, True), (c, True)]
 myQ = S_nand (S_var a) (S_nand (S_nand (S_var b) (S_var c)) (S_var a))
 myQ1 = S_nand (S_not ( S_not ( S_var a))) (S_var b)
 myQ2 = S_nand (S_var a) (S_var a)
@@ -102,16 +103,46 @@ myQ7 = S_nand (S_var b) (S_var a)
 myQ8 = S_nand myQ6 myQ7
 
 
-x = [myQ, myQ1, myQ2, myQ3, myQ4, myQ5, myQ8] 
-e = [myEnv, myEnv1]
+queries = [myQ, myQ1, myQ2, myQ3, myQ4, myQ5, myQ8] 
 
-testQ :: IO()
-testQ = do 
-    print "Testing Question 1 : "
-    print (map findVars x)
-    print "Testing Question 2 : "
-    let tq = map transform x
-    print . map ($ myEnv) $ tq
-    print . map ($ myEnv1) $ tq
-    print "Testing Question 3 : "
-    print (map simplify x) 
+--Build Unit tests for findVars
+expected = [[a,b,c], 
+            [a,b],
+            [a],
+            [b],
+            [b,a],
+            [b,a],
+            [a,b],
+            [b,a],
+            [a,b]]
+
+fvTests = TestList ["test" ++ show i ~: "(findVars : " ++ show q ++ ")" ~: e ~=? (findVars q) | (i,e,q) <- zip3 [0..8] expected queries]
+
+--Build Unit tests for transform
+expectedEnv = [True,True,False,False,False,False,False]
+expectedEnv1 = [True,True,True,True,True,True,False]
+
+transTests1 = TestList ["test" ++ show i ~: "(transform : " ++ show q ++ ")" ~: e ~=? (transform q myEnv) | (i,e,q) <- zip3 [0..8] expectedEnv queries]
+
+transTests2 = TestList ["test" ++ show i ~: "(transform : " ++ show q ++ ")" ~: e ~=? (transform q myEnv1) | (i,e,q) <- zip3 [0..8] expectedEnv1 queries]
+
+--Build unit Tests for Simplify
+expectedSimp = [S_nand (S_var "a") (S_nand (S_nand (S_var "b") (S_var "c")) (S_var "a")),
+            S_nand (S_var "a") (S_var "b"),S_not (S_var "a"),
+            S_var "b",
+            S_nand (S_nand (S_not (S_var "b")) (S_var "b")) (S_var "a"),
+            S_nand (S_not (S_var "b")) (S_var "a"),
+            S_not (S_nand (S_var "a") (S_var "b"))]
+
+
+simpTests = TestList ["test" ++ show i ~: "(simplify : " ++ show q ++ ")" ~: e ~=? (simplify q) | (i,e,q) <- zip3 [0..8] expectedSimp queries]
+
+--Run Unit Tests
+runFVTests :: IO Counts
+runFVTests = do 
+    print "Testing findVars :: "
+    runTestTT fvTests
+    print "Testing transform :: "
+    runTestTT transTests1
+    runTestTT transTests2
+    print "Testing simplify :: "
