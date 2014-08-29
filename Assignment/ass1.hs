@@ -1,12 +1,17 @@
+-- @author : ricky ratnyake 
+
 import Data.List 
 import Test.HUnit
 
---Define types for Variable and Environment and Query as per specification 
+--Define types for Variable and Environment and Query as per specification
+--Variables are defined as strings of any length
 type Variable = [Char]
 type Environment = [(Variable, Bool)]
 
 data Query
-    = S_var Variable
+    = TRUE          --Added to support extended simplification in Question3
+    | FALSE
+    | S_var Variable
     | S_nand Query Query
     | S_not Query
     deriving(Show)
@@ -16,32 +21,39 @@ instance Eq Query where
     S_var a == S_var b = a == b
     S_not a == S_not b = a == b
     S_nand a b == S_nand c d = (a == c && b == d) || (a == d && b == c)
+    TRUE == TRUE = True
+    FALSE == FALSE = True
     _ == _ = False 
 
 ------------------------------------------
 --Question 1------------------------------
 ------------------------------------------
 
--- |findVars returns a list of unique Variables in the given query 
+-- |findVars returns a list of unique Variables in the given query, in the order they first appear in the query 
 findVars :: Query -> [Variable] 
-findVars (S_var v) = [v]
-findVars (S_nand q1 q2) = nub (findVars q1 ++ findVars q2)      --Removes duplicates
-findVars (S_not q)  = findVars q
+findVars q = nub $ findAllVars q                --Removes duplicates in the list
+    where   findAllVars TRUE = []
+            findAllVars FALSE = []
+            findAllVars (S_var v) = [v]
+            findAllVars (S_nand q1 q2) = findAllVars q1 ++ findAllVars q2   
+            findAllVars (S_not q)  = findAllVars q
 
 
 ------------------------------------------
 --Question 2------------------------------
 ------------------------------------------
 
--- |transform constructs a lamdba expression to evaluate a query given an environment, 
--- it can be invoked partially 
+-- |transform evaluates a given query using an environment,
+-- it can be invoked partially without providing an environment
 transform :: Query -> Environment -> Bool
+transform TRUE env = True
+transform FALSE env = False
 transform (S_var v) env = case lookup v env of 
                             Nothing -> error "No variable found" 
                             Just b -> b
 
-transform (S_not q) env = not (transform q env)
-transform (S_nand q1 q2) env = not (and [transform q1 env, transform q2 env])
+transform (S_not q) env = not $ transform q env
+transform (S_nand q1 q2) env = not $ and [transform q1 env, transform q2 env]
 
 
 ------------------------------------------
@@ -49,24 +61,33 @@ transform (S_nand q1 q2) env = not (and [transform q1 env, transform q2 env])
 ------------------------------------------
 
 -- |simplifyOnce will parse the given query once to reduce redundant expressions 
+-- checks for the following cases !(!A) => A , !(A & A) => !A , !(A & !A) => Fasle
 simplifyOnce :: Query -> Query
+simplifyOnce TRUE = TRUE
+simplifyOnce FALSE = FALSE
 simplifyOnce (S_var v) = S_var v
 simplifyOnce (S_not (S_not q)) = simplifyOnce q
 simplifyOnce (S_not q) = S_not (simplifyOnce q)
 simplifyOnce (S_nand q1 q2) = 
-    let x = simplifyOnce q1
+    let x = simplifyOnce q1                         
         y = simplifyOnce q2
-    in if x == y 
-        then S_not x
-        else S_nand x y         
+    in if x == y                                 
+        then S_not x                
+        else if isNegated x y 
+                then TRUE
+                else S_nand x y         
 
--- |simplify will recursively call simplifyOnce until no further reductions can be made
+-- |simplify will recursively call simplifyOnce until no further reductions can be made. This is intended to catch any possible reductions that are made possible after a previous reduction
 simplify :: Query -> Query
 simplify q = 
     let x = simplifyOnce q
     in if x == q
         then x
         else simplify x
+
+-- |Checks if one query is a negated version of the other
+isNegated :: Query -> Query -> Bool
+isNegated q1 q2 = (S_not q1 == q2) || (q1 == S_not q2)
 
 
 -------------------------------------------
@@ -83,32 +104,31 @@ myQ = S_nand (S_var a) (S_nand (S_nand (S_var b) (S_var c)) (S_var a))
 myQ1 = S_nand (S_not ( S_not ( S_var a))) (S_var b)
 myQ2 = S_nand (S_var a) (S_var a)
 myQ3 = S_nand (S_not  (S_var b)) (S_not (S_var b))
-myQ4 = S_nand 
-        (S_nand (S_not (S_var b)) 
-                (S_not (S_not (S_var b)))
-        ) 
-        (S_nand (S_not (S_var a)) 
-                (S_not (S_var a))
-        )
+myQ4 = S_nand (S_not (S_var b)) (S_not (S_not (S_var b)))
+myQ5 = S_nand   (myQ4) 
+                (S_nand (S_not (S_var a)) 
+                        (S_not (S_var a)))
 
-myQ5 = S_nand 
+myQ6 = S_nand 
         (S_nand (S_not  (S_nand 
                                 (S_var b)
                                 (S_var b))) 
                 (S_not (S_not (S_var b)))) 
         (S_nand (S_not (S_var a)) 
                 (S_not (S_var a)))
-myQ6 = S_nand (S_var a) (S_var b)
-myQ7 = S_nand (S_var b) (S_var a)
-myQ8 = S_nand myQ6 myQ7
+myQ7 = S_nand (S_var a) (S_var b)
+myQ8 = S_nand (S_var b) (S_var a)
+myQ9 = S_nand myQ7 myQ8
 
 
-queries = [myQ, myQ1, myQ2, myQ3, myQ4, myQ5, myQ8] 
+queries = [myQ, myQ1, myQ2, myQ3, myQ4, myQ5, myQ6, myQ7, myQ8, myQ9]
+tNums = [0..9]
 
 --Build Unit tests for findVars
 expected = [[a,b,c], 
             [a,b],
             [a],
+            [b],
             [b],
             [b,a],
             [b,a],
@@ -116,33 +136,38 @@ expected = [[a,b,c],
             [b,a],
             [a,b]]
 
-fvTests = TestList ["test" ++ show i ~: "(findVars : " ++ show q ++ ")" ~: e ~=? (findVars q) | (i,e,q) <- zip3 [0..8] expected queries]
+fvTests = TestList ["test" ++ show i ~: "(findVars : " ++ show q ++ ")" ~: e ~=? (findVars q) | (i,e,q) <- zip3 tNums expected queries]
 
 --Build Unit tests for transform
-expectedEnv = [True,True,False,False,False,False,False]
-expectedEnv1 = [True,True,True,True,True,True,False]
+expectedEnv = [True,True,False,False,True,False,False,True,True,False]
+expectedEnv1 = [True,True,True,True,True,True,True,True,True,False]
 
-transTests1 = TestList ["test" ++ show i ~: "(transform : " ++ show q ++ ")" ~: e ~=? (transform q myEnv) | (i,e,q) <- zip3 [0..8] expectedEnv queries]
+transTests1 = TestList ["test" ++ show i ~: "(transform : " ++ show q ++ ")" ~: e ~=? (transform q myEnv) | (i,e,q) <- zip3 tNums expectedEnv queries]
 
-transTests2 = TestList ["test" ++ show i ~: "(transform : " ++ show q ++ ")" ~: e ~=? (transform q myEnv1) | (i,e,q) <- zip3 [0..8] expectedEnv1 queries]
+transTests2 = TestList ["test" ++ show i ~: "(transform : " ++ show q ++ ")" ~: e ~=? (transform q myEnv1) | (i,e,q) <- zip3 tNums expectedEnv1 queries]
 
 --Build unit Tests for Simplify
 expectedSimp = [S_nand (S_var "a") (S_nand (S_nand (S_var "b") (S_var "c")) (S_var "a")),
-            S_nand (S_var "a") (S_var "b"),S_not (S_var "a"),
+            S_nand (S_var "a") (S_var "b"),
+            S_not (S_var "a"),
             S_var "b",
-            S_nand (S_nand (S_not (S_var "b")) (S_var "b")) (S_var "a"),
+            TRUE,
+            S_nand TRUE (S_var "a"),
             S_nand (S_not (S_var "b")) (S_var "a"),
+            S_nand (S_var "a") (S_var "b"),
+            S_nand (S_var "b") (S_var "a"),
             S_not (S_nand (S_var "a") (S_var "b"))]
 
 
-simpTests = TestList ["test" ++ show i ~: "(simplify : " ++ show q ++ ")" ~: e ~=? (simplify q) | (i,e,q) <- zip3 [0..8] expectedSimp queries]
+simpTests = TestList ["test" ++ show i ~: "(simplify : " ++ show q ++ ")" ~: e ~=? (simplify q) | (i,e,q) <- zip3 tNums expectedSimp queries]
 
 --Run Unit Tests
-runFVTests :: IO Counts
-runFVTests = do 
+runTests :: IO Counts
+runTests = do 
     print "Testing findVars :: "
     runTestTT fvTests
     print "Testing transform :: "
     runTestTT transTests1
     runTestTT transTests2
     print "Testing simplify :: "
+    runTestTT simpTests
